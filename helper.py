@@ -2,6 +2,7 @@ import pyorient
 from hashlib import sha256
 import base64
 from models import *
+import datetime
 
 client = pyorient.OrientDB("localhost", 2424)
 session_id = client.connect("root", "orientroot")
@@ -14,7 +15,7 @@ def GetTasksByUser(username):
 
     userRID = user[0]._rid
 
-    data = client.query(f'SELECT * FROM Tasks WHERE @rid in (select in from `Has` where out = "{userRID}")')
+    data = client.query(f'SELECT * FROM Tasks WHERE @rid in (select in from `Has` where out = "{userRID}") order by Timestamp')
 
     if len(data) != 0:
         for task in data:
@@ -30,6 +31,11 @@ def GetTasksByUser(username):
 def Register(username, password):
     hashedPassword = base64.b64encode(sha256(password.encode('utf-8')).digest()).decode('utf-8')
 
+    user = client.query(f'SELECT * FROM Users WHERE Username = "{username}"')
+
+    if len(user) != 0:
+        return "User already exists"
+
     cmd = f'INSERT INTO Users (Username, Password) VALUES ("{username}", "{hashedPassword}")'
 
     try:
@@ -37,7 +43,7 @@ def Register(username, password):
     except Exception as e:
         return e
 
-    return "Success"
+    return True
 
 def Login(username, password):
     user = client.query(f'SELECT * FROM Users WHERE Username = "{username}"')
@@ -59,7 +65,7 @@ def CreateTask(username, taskName):
     userRID = user[0]._OrientRecord__rid
 
     try:
-        cmdResult = client.command(f'INSERT INTO Tasks (Name, Status) VALUES ("{taskName}", "To Do")')
+        cmdResult = client.command(f'INSERT INTO Tasks (Name, Status, Timestamp) VALUES ("{taskName}", "To Do", "{datetime.datetime.now()}")')
         taskRID = cmdResult[0]._rid
         client.command(f'CREATE edge Has from {userRID} to {taskRID};')
     except Exception as e:
@@ -67,13 +73,9 @@ def CreateTask(username, taskName):
     
     return "Success"
 
-def UpdateTask(username, taskName, status):
-    user = client.query(f'SELECT * FROM Users WHERE Username = "{username}"')
-
-    userRID = user[0]._rid
-
+def UpdateTask(rid, taskName, status):
     try:
-        tasks = client.command(f'UPDATE Tasks SET Status = "{status}" WHERE @rid in (select in from `Has` where out = "{userRID}") and Name = "{taskName}"')
+        client.command(f'UPDATE Tasks SET Status = "{status}", Name = "{taskName}" WHERE @rid = "{rid}"')
     except Exception as e:
         return e
     
@@ -81,7 +83,7 @@ def UpdateTask(username, taskName, status):
 
 def DeleteTask(rid):
     try:
-        client.command(f'DELETE FROM Tasks WHERE @rid = "{rid}"')
+        client.command(f'DELETE VERTEX FROM Tasks WHERE @rid = "{rid}"')
     except Exception as e:
         return e
     
